@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bird Song Quiz — Danish Birds</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>🐦 Bird Song Quiz</h1>
+        <p class="subtitle">Identify Danish birds by their songs</p>
+        <div id="score">Score: 0 / 0</div>
+        <button id="sidebar-toggle" title="Filter species">☰</button>
+      </header>
+
+      <main>
+        <div id="loading" class="hidden">
+          <div class="spinner"></div>
+          <p>Finding a bird song…</p>
+        </div>
+
+        <div id="game-area">
+          <div id="player-section">
+            <button id="play-btn" disabled>
+              <span class="play-icon">▶</span>
+              <span>Play Bird Song</span>
+            </button>
+            <p id="sound-info">Loading…</p>
+          </div>
+
+          <div id="guess-section">
+            <div id="autocomplete-container">
+              <input
+                type="text"
+                id="guess-input"
+                placeholder="Type the bird name…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <ul id="autocomplete-list" class="hidden"></ul>
+            </div>
+            <div class="button-row">
+              <button id="submit-btn" class="primary">Submit</button>
+              <button id="show-options-btn" class="secondary">Show Options</button>
+              <button id="skip-btn" class="secondary">Skip</button>
+            </div>
+            <div id="options-section" class="hidden">
+              <div id="options-grid"></div>
+            </div>
+          </div>
+
+          <div id="result-section" class="hidden">
+            <div id="result-message"></div>
+            <div id="bird-info"></div>
+            <button id="next-btn" class="primary">Next Bird →</button>
+          </div>
+        </div>
+      </main>
+
+      <footer>
+        <p>
+          Sounds from
+          <a href="https://xeno-canto.org" target="_blank" rel="noopener"
+            >xeno-canto.org</a
+          >
+          · Birds of Denmark
+        </p>
+      </footer>
+    </div>
+
+    <div id="sidebar-overlay"></div>
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h2>🐦 Species Filter</h2>
+        <button id="sidebar-close" title="Close">✕</button>
+      </div>
+      <div class="sidebar-controls">
+        <span id="enabled-count"></span>
+        <div class="sidebar-btns">
+          <button id="select-all-btn" class="small-btn">All</button>
+          <button id="deselect-all-btn" class="small-btn">None</button>
+        </div>
+      </div>
+      <div id="bird-list"></div>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
