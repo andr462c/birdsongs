@@ -35,5 +35,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [xcProxy],
+    server: {
+      allowedHosts: env.ALLOWED_HOSTS
+        ? env.ALLOWED_HOSTS.split(",").map((h: string) => h.trim())
+        : [],
+    },
   };
 });
