@@ -86,6 +86,27 @@
           <button id="deselect-all-btn" class="small-btn">None</button>
         </div>
       </div>
+      <div class="sidebar-settings">
+        <div class="setting-row">
+          <span class="setting-label">Sound</span>
+          <div class="setting-toggle" id="sound-type-toggle">
+            <button class="toggle-btn" data-value="song">Song</button>
+            <button class="toggle-btn" data-value="call">Call</button>
+            <button class="toggle-btn" data-value="all">Both</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Region</span>
+          <div class="setting-toggle" id="region-toggle">
+            <button class="toggle-btn" data-value="europe">Europe</button>
+            <button class="toggle-btn" data-value="denmark">Denmark</button>
+          </div>
+        </div>
+        <div class="validate-row">
+          <button id="validate-btn" class="small-btn">🔍 Validate</button>
+          <span id="validate-status"></span>
+        </div>
+      </div>
       <div id="bird-list"></div>
     </aside>
 

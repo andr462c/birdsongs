@@ -27,11 +27,46 @@ interface XCResponse {
   recordings: Recording[];
 }
 
+// ── Settings ──
+
+type SoundType = "song" | "call" | "all";
+type Region = "europe" | "denmark";
+
+interface Settings {
+  soundType: SoundType;
+  region: Region;
+}
+
+const settings: Settings = {
+  soundType: "song",
+  region: "europe",
+};
+
+function loadSettings() {
+  try {
+    const saved = localStorage.getItem("birdid-settings");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (["song", "call", "all"].includes(parsed.soundType))
+        settings.soundType = parsed.soundType;
+      if (["europe", "denmark"].includes(parsed.region))
+        settings.region = parsed.region;
+    }
+  } catch {
+    // ignore corrupted localStorage
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem("birdid-settings", JSON.stringify(settings));
+}
+
 // ── State ──
 
 interface GameState {
   currentBird: Bird | null;
   currentRecording: Recording | null;
+  currentRecordings: Recording[];
   score: number;
   total: number;
   recentBirds: string[];
@@ -42,6 +77,7 @@ interface GameState {
 const state: GameState = {
   currentBird: null,
   currentRecording: null,
+  currentRecordings: [],
   score: 0,
   total: 0,
   recentBirds: [],
@@ -78,7 +114,7 @@ function getEnabledBirds(): Bird[] {
 
 // ── Prefetch ──
 
-let prefetched: { bird: Bird; recording: Recording } | null = null;
+let prefetched: { bird: Bird; recording: Recording; recordings: Recording[] } | null = null;
 let prefetchPromise: Promise<void> | null = null;
 
 // ── DOM helpers ──
@@ -122,13 +158,51 @@ async function fetchWithTimeout(
   }
 }
 
+function buildQueries(bird: Bird): string[] {
+  const regionPart =
+    settings.region === "denmark" ? "cnt:denmark" : "area:europe";
+  const base = `gen:${bird.genus} sp:${bird.species} grp:birds`;
+  const baseGenus = `gen:${bird.genus} grp:birds`; // taxonomy-mismatch fallback
+
+  if (settings.soundType === "song") {
+    return [
+      `${base} q:A ${regionPart} type:song`,
+      `${base} q:">C" ${regionPart} type:song`,
+      `${base} q:A type:song`,
+      `${base} type:song`,
+      `${baseGenus} q:A ${regionPart} type:song`,
+    ];
+  } else if (settings.soundType === "call") {
+    return [
+      `${base} q:A ${regionPart} type:call`,
+      `${base} q:">C" ${regionPart} type:call`,
+      `${base} q:A type:call`,
+      `${base} type:call`,
+      `${baseGenus} q:A ${regionPart} type:call`,
+    ];
+  } else {
+    return [
+      `${base} q:A ${regionPart} type:song`,
+      `${base} q:">C" ${regionPart} type:song`,
+      `${base} q:A ${regionPart} type:call`,
+      `${base} q:">C" ${regionPart}`,
+      `${base} q:A`,
+      `${baseGenus} q:A ${regionPart}`,
+    ];
+  }
+}
+
+function filterRecordings(recordings: Recording[], bird: Bird): Recording[] {
+  return recordings.filter(
+    (r) =>
+      r.sp.toLowerCase() === bird.species.toLowerCase() &&
+      r.file &&
+      !r.file.includes("restricted")
+  );
+}
+
 async function fetchRecordings(bird: Bird): Promise<Recording[]> {
-  const queries = [
-    `gen:${bird.genus} grp:birds q:A area:europe type:song`,
-    `gen:${bird.genus} grp:birds q:">C" area:europe type:song`,
-    `gen:${bird.genus} grp:birds q:A area:europe type:call`,
-    `gen:${bird.genus} grp:birds q:">C" area:europe`,
-  ];
+  const queries = buildQueries(bird);
 
   for (const query of queries) {
     try {
@@ -138,14 +212,27 @@ async function fetchRecordings(bird: Bird): Promise<Recording[]> {
       if (!res.ok) continue;
 
       const data: XCResponse = await res.json();
-      const filtered = data.recordings.filter(
-        (r) =>
-          r.sp.toLowerCase() === bird.species.toLowerCase() &&
-          r.file &&
-          !r.file.includes("restricted")
-      );
+      const page1 = filterRecordings(data.recordings, bird);
 
-      if (filtered.length > 0) return filtered;
+      // If there are multiple pages, randomly sample one for variety
+      if (data.numPages > 1) {
+        const maxPage = Math.min(data.numPages, 5);
+        const randomPage = Math.floor(Math.random() * (maxPage - 1)) + 2;
+        try {
+          const pageRes = await fetchWithTimeout(
+            `/api/xc/recordings?query=${encodeURIComponent(query)}&page=${randomPage}`
+          );
+          if (pageRes.ok) {
+            const pageData: XCResponse = await pageRes.json();
+            const paged = filterRecordings(pageData.recordings, bird);
+            if (paged.length > 0) return paged;
+          }
+        } catch {
+          // random page failed — fall through to page 1
+        }
+      }
+
+      if (page1.length > 0) return page1;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         console.warn("Timeout for query:", query);
@@ -260,7 +347,7 @@ async function startPrefetch() {
       if (recordings.length > 0) {
         const recording =
           recordings[Math.floor(Math.random() * recordings.length)];
-        prefetched = { bird: tryBird, recording };
+        prefetched = { bird: tryBird, recording, recordings };
       }
     } catch (e) {
       console.warn("Prefetch failed:", e);
@@ -334,6 +421,7 @@ async function startRound() {
   ) {
     bird = prefetched.bird;
     recording = prefetched.recording;
+    state.currentRecordings = prefetched.recordings;
     prefetched = null;
     loadingEl.classList.add("hidden");
   }
@@ -358,6 +446,7 @@ async function startRound() {
     loadingEl.classList.add("hidden");
 
     if (recordings.length > 0) {
+      state.currentRecordings = recordings;
       recording =
         recordings[Math.floor(Math.random() * recordings.length)];
     }
@@ -385,30 +474,58 @@ async function startRound() {
     return;
   }
 
+  loadRecording(recording);
+  guessInput.focus();
+
+  // Start prefetching next bird in background
+  startPrefetch();
+}
+
+// ── Audio ──
+
+function loadRecording(recording: Recording) {
   state.currentRecording = recording;
 
-  // Set up audio
+  if (state.audio) {
+    state.audio.pause();
+    state.audio.src = "";
+    state.isPlaying = false;
+  }
+
   const audioUrl = recording.file.startsWith("//")
     ? `https:${recording.file}`
     : recording.file;
 
-  state.audio = new Audio(audioUrl);
-  state.audio.addEventListener("ended", () => {
+  const audio = new Audio(audioUrl);
+  state.audio = audio;
+
+  audio.addEventListener("ended", () => {
     state.isPlaying = false;
     playBtn.classList.remove("playing");
     playBtnText.textContent = "Play Again";
   });
-  state.audio.addEventListener("error", () => {
-    soundInfo.textContent = "Audio failed to load. Try the next bird.";
+
+  audio.addEventListener("error", () => {
+    if (state.audio !== audio) return; // stale handler after round change
+    // Remove this recording and silently try another from the pool
+    state.currentRecordings = state.currentRecordings.filter(
+      (r) => r.id !== recording.id
+    );
+    if (state.currentRecordings.length > 0) {
+      const next =
+        state.currentRecordings[
+          Math.floor(Math.random() * state.currentRecordings.length)
+        ];
+      loadRecording(next);
+    } else {
+      soundInfo.textContent = "Audio failed to load. Try the next bird.";
+      playBtn.setAttribute("disabled", "");
+    }
   });
 
   playBtn.removeAttribute("disabled");
   playBtnText.textContent = "Play Bird Song";
   soundInfo.textContent = "Press play to hear the bird";
-  guessInput.focus();
-
-  // Start prefetching next bird in background
-  startPrefetch();
 }
 
 function playSound() {
@@ -494,9 +611,17 @@ function submitGuess() {
   const guess = guessInput.value.trim();
   if (!guess) return;
 
+  const matchedBird = BIRDS.find(
+    (b) => b.en.toLowerCase() === guess.toLowerCase()
+  );
+  if (!matchedBird) {
+    guessInput.classList.add("invalid");
+    setTimeout(() => guessInput.classList.remove("invalid"), 600);
+    return;
+  }
+
   autocompleteList.classList.add("hidden");
-  const correct = guess.toLowerCase() === state.currentBird.en.toLowerCase();
-  showResult(correct ? "correct" : "incorrect");
+  showResult(matchedBird.en === state.currentBird.en ? "correct" : "incorrect");
 }
 
 function skip() {
@@ -589,6 +714,7 @@ function initSidebar() {
     for (const bird of groupBirds) {
       const label = document.createElement("label");
       label.className = "bird-checkbox";
+      label.dataset.birdEn = bird.en;
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = enabledBirds.has(bird.en);
@@ -710,6 +836,90 @@ function updateSelection() {
   });
 }
 
+// ── Settings UI ──
+
+function initSettings() {
+  const soundToggle = $("sound-type-toggle");
+  soundToggle.querySelectorAll<HTMLButtonElement>(".toggle-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.value === settings.soundType);
+    btn.addEventListener("click", () => {
+      settings.soundType = btn.dataset.value as SoundType;
+      saveSettings();
+      soundToggle
+        .querySelectorAll<HTMLButtonElement>(".toggle-btn")
+        .forEach((b) => b.classList.toggle("active", b === btn));
+      prefetched = null;
+      prefetchPromise = null;
+      startPrefetch();
+    });
+  });
+
+  const regionToggle = $("region-toggle");
+  regionToggle.querySelectorAll<HTMLButtonElement>(".toggle-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.value === settings.region);
+    btn.addEventListener("click", () => {
+      settings.region = btn.dataset.value as Region;
+      saveSettings();
+      regionToggle
+        .querySelectorAll<HTMLButtonElement>(".toggle-btn")
+        .forEach((b) => b.classList.toggle("active", b === btn));
+      prefetched = null;
+      prefetchPromise = null;
+      startPrefetch();
+    });
+  });
+
+  $("validate-btn").addEventListener("click", validateBirds);
+}
+
+// ── Bird validator ──
+
+function findBirdLabel(en: string): HTMLElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLElement>(".bird-checkbox[data-bird-en]")
+    ).find((el) => el.dataset.birdEn === en) || null
+  );
+}
+
+async function validateBirds() {
+  const validateBtn = $("validate-btn") as HTMLButtonElement;
+  const validateStatus = $("validate-status");
+
+  validateBtn.disabled = true;
+  // Clear previous warning marks
+  document
+    .querySelectorAll(".bird-checkbox.no-recordings")
+    .forEach((el) => el.classList.remove("no-recordings"));
+
+  const enabled = getEnabledBirds();
+  const failed: string[] = [];
+
+  for (let i = 0; i < enabled.length; i++) {
+    const bird = enabled[i];
+    validateStatus.textContent = `Checking ${i + 1} / ${enabled.length}…`;
+
+    const recordings = await fetchRecordings(bird);
+    if (recordings.length === 0) {
+      failed.push(bird.en);
+      const label = findBirdLabel(bird.en);
+      if (label) label.classList.add("no-recordings");
+    }
+
+    // Small pause to avoid hammering the API
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  validateBtn.disabled = false;
+
+  if (failed.length === 0) {
+    validateStatus.textContent = "✅ All OK";
+  } else {
+    const preview = failed.slice(0, 3).join(", ");
+    validateStatus.textContent = `⚠️ ${failed.length} missing: ${preview}${failed.length > 3 ? "…" : ""}`;
+  }
+}
+
 // ── Event listeners ──
 
 playBtn.addEventListener("click", playSound);
@@ -733,8 +943,10 @@ guessInput.addEventListener("keydown", (e) => {
     updateSelection();
   } else if (e.key === "Enter") {
     e.preventDefault();
-    if (selectedIndex >= 0 && items[selectedIndex] && visible) {
-      const li = items[selectedIndex] as HTMLElement;
+    if (visible && items.length > 0) {
+      // Auto-select top match if nothing is explicitly highlighted
+      const idx = selectedIndex >= 0 ? selectedIndex : 0;
+      const li = items[idx] as HTMLElement;
       guessInput.value = li.dataset.birdEn || "";
       autocompleteList.classList.add("hidden");
       selectedIndex = -1;
@@ -779,6 +991,8 @@ $("deselect-all-btn").addEventListener("click", () => {
 
 // ── Start ──
 
+loadSettings();
 loadBirdPrefs();
 initSidebar();
+initSettings();
 startRound();
