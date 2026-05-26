@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => {
       allowedHosts: env.ALLOWED_HOSTS
         ? env.ALLOWED_HOSTS.split(",").map((h: string) => h.trim())
         : [],
+      fs: {
+        deny: ["Dockerfile", ".dockerignore", "*.md", ".env", ".env.*", "*.{crt,pem}"],
+      },
     },
   };
 });

@@ -1,5 +1,4 @@
 import { BIRDS, Bird, BIRD_GROUPS } from "./birds";
-import "./style.css";
 
 // ── Types ──
 
@@ -182,11 +181,9 @@ function buildQueries(bird: Bird): string[] {
     ];
   } else {
     return [
-      `${base} q:A ${regionPart} type:song`,
-      `${base} q:">C" ${regionPart} type:song`,
-      `${base} q:A ${regionPart} type:call`,
+      `${base} q:A ${regionPart}`,
       `${base} q:">C" ${regionPart}`,
-      `${base} q:A`,
+      `${base} q:A ${regionPart}`,
       `${baseGenus} q:A ${regionPart}`,
     ];
   }
